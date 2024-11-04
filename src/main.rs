@@ -3,18 +3,18 @@ use getopts::Options;
 use std::env;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::{TcpListener, UnixStream};
 use tokio::sync::broadcast;
 
 type BoxedError = Box<dyn std::error::Error + Sync + Send + 'static>;
 static DEBUG: AtomicBool = AtomicBool::new(false);
-const BUF_SIZE: usize = 1024;
+const BUF_SIZE: usize = 16384;
 
 fn print_usage(program: &str, opts: Options) {
     let program_path = std::path::PathBuf::from(program);
     let program_name = program_path.file_stem().unwrap().to_string_lossy();
     let brief = format!(
-        "Usage: {} REMOTE_HOST:PORT [-b BIND_ADDR] [-l LOCAL_PORT]",
+        "Usage: {} REMOTE_SOCKET [-b BIND_ADDR] [-l LOCAL_PORT]",
         program_name
     );
     print!("{}", opts.usage(&brief));
@@ -55,11 +55,6 @@ async fn main() -> Result<(), BoxedError> {
             std::process::exit(-1);
         }
     };
-
-    if !remote.contains(':') {
-        eprintln!("A remote port is required (REMOTE_ADDR:PORT)");
-        std::process::exit(-1);
-    }
 
     DEBUG.store(matches.opt_present("d"), Ordering::Relaxed);
     // let local_port: i32 = matches.opt_str("l").unwrap_or("0".to_string()).parse()?;
@@ -148,7 +143,7 @@ async fn forward(bind_ip: &str, local_port: i32, remote: String) -> Result<(), B
             println!("New connection from {}", client_addr);
 
             // Establish connection to upstream for each incoming client connection
-            let mut remote = match TcpStream::connect(remote).await {
+            let mut remote = match UnixStream::connect(remote).await {
                 Ok(result) => result,
                 Err(e) => {
                     eprintln!("Error establishing upstream connection: {e}");
