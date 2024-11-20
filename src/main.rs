@@ -39,6 +39,8 @@ async fn main() -> Result<(), BoxedError> {
         "LOCAL_PORT",
     );
     opts.optflag("d", "debug", "Enable debug mode");
+    opts.optflag("", "tcp-nodelay", "Enable TCP_NODELAY (default is false)");
+
 
     let matches = match opts.parse(&args[1..]) {
         Ok(opts) => opts,
@@ -55,6 +57,7 @@ async fn main() -> Result<(), BoxedError> {
             std::process::exit(-1);
         }
     };
+    let tcp_nodelay = matches.opt_present("tcp-nodelay");
 
     DEBUG.store(matches.opt_present("d"), Ordering::Relaxed);
     // let local_port: i32 = matches.opt_str("l").unwrap_or("0".to_string()).parse()?;
@@ -64,10 +67,10 @@ async fn main() -> Result<(), BoxedError> {
         None => "127.0.0.1".to_owned(),
     };
 
-    forward(&bind_addr, local_port, remote).await
+    forward(&bind_addr, local_port, remote, tcp_nodelay).await
 }
 
-async fn forward(bind_ip: &str, local_port: i32, remote: String) -> Result<(), BoxedError> {
+async fn forward(bind_ip: &str, local_port: i32, remote: String, tcp_nodelay: bool) -> Result<(), BoxedError> {
     // Listen on the specified IP and port
     let bind_addr = if !bind_ip.starts_with('[') && bind_ip.contains(':') {
         // Correctly format for IPv6 usage
@@ -75,7 +78,7 @@ async fn forward(bind_ip: &str, local_port: i32, remote: String) -> Result<(), B
     } else {
         format!("{}:{}", bind_ip, local_port)
     };
-    let bind_sock = bind_addr
+    let bind_sock: std::net::SocketAddr = bind_addr
         .parse::<std::net::SocketAddr>()
         .expect("Failed to parse bind address");
     let listener = TcpListener::bind(&bind_sock).await?;
@@ -140,7 +143,17 @@ async fn forward(bind_ip: &str, local_port: i32, remote: String) -> Result<(), B
         let (mut client, client_addr) = listener.accept().await?;
 
         tokio::spawn(async move {
-            println!("New connection from {}", client_addr);
+            if tcp_nodelay {
+                println!("New connection from {} TCP_NODELAY on", client_addr);
+                if let Err(e) = client.set_nodelay(true) {
+                    eprintln!("Failed to set TCP_NODELAY on client socket: {}", e);
+                }
+            } else {
+                println!("New connection from {} TCP_NODELAY off", client_addr);
+                if let Err(e) = client.set_nodelay(false) {
+                    eprintln!("Failed to set TCP_NODELAY off client socket: {}", e);
+                }
+            }
 
             // Establish connection to upstream for each incoming client connection
             let mut remote = match UnixStream::connect(remote).await {

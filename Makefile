@@ -10,6 +10,9 @@ bench:
 build:
 	@env TERM=xterm-256color $(CARGO) build --color=always 2>&1
 
+build-release:
+	@env TERM=xterm-256color $(CARGO) build --release --color=always 2>&1
+
 check: build test
 
 clean:
@@ -24,7 +27,7 @@ install:
 publish:
 	@$(CARGO) publish
 
-run: build
+run: build-release
 	@$(CARGO) run
 
 test:
